@@ -122,6 +122,19 @@ CPIK_CHANNEL_CHART_DESCRIPTION = """Note: CPIK (cost per incremental KPI) point
 estimate is determined by the posterior median, whereas ROI point estimate is
 determined by the posterior mean."""
 
+ROI_OVER_TIME_CHART_ID = 'roi-over-time-chart'
+ROI_OVER_TIME_CHART_TITLE_FORMAT = 'ROI between changepoints {ci}'
+ROI_OVER_TIME_CHART_DESCRIPTION = """Note: This chart covers all time periods of
+the training data, even when the rest of this card covers only the selected time
+periods. Only channels with changepoints are shown. Each step is the ROI of one
+interval between a channel's changepoints, over the interval's time periods, and
+the shaded band is its credible interval. Consecutive steps are joined by a
+vertical line at their changepoint: the ROI changes only at changepoints,
+because a channel's effect is the same throughout an interval. The ROI of an
+interval is the incremental outcome over all geos in the interval's time
+periods, divided by the spend over the same geos and time periods. Intervals
+without spend have no ROI and are left blank."""
+
 RESPONSE_CURVES_CARD_ID = 'response-curves'
 RESPONSE_CURVES_CARD_TITLE = 'Response curves'
 RESPONSE_CURVES_INSIGHTS_FORMAT = """Your response curves depict the

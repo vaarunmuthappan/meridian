@@ -66,10 +66,16 @@ class Summarizer:
   def __init__(self, meridian: model.Meridian, use_kpi: bool = False):
     """Initialize the visualizer classes that are not time-dependent."""
     self._meridian = meridian
-    self._use_kpi = analyzer.Analyzer(
+    meridian_analyzer = analyzer.Analyzer(
         model_context=meridian.model_context,
         inference_data=meridian.inference_data,
-    )._use_kpi(use_kpi)
+    )
+    self._use_kpi = meridian_analyzer._use_kpi(use_kpi)
+    # Mock analyzers in tests may have a truthy `_has_changepoints`.
+    has_changepoints = meridian_analyzer._has_changepoints  # pylint: disable=protected-access
+    self._has_changepoints = (
+        isinstance(has_changepoints, bool) and has_changepoints
+    )
     currency_code = getattr(meridian.input_data, 'currency_code', None)
     self._currency = currency_module.get_currency_symbol(currency_code)
 
@@ -438,16 +444,26 @@ class Summarizer:
         lead_cpik_ratio=cpik_df[c.CPIK][0],
         currency=self._currency,
     )
+    chart_specs = [
+        roi_effectiveness_chart,
+        roi_marginal_chart,
+        roi_channel_chart,
+    ]
+    if self._has_changepoints:
+      # The ROI of each interval between changepoints, over all time periods.
+      chart_specs.append(
+          formatter.ChartSpec(
+              id=summary_text.ROI_OVER_TIME_CHART_ID,
+              description=summary_text.ROI_OVER_TIME_CHART_DESCRIPTION,
+              chart_json=media_summary._plot_roi_over_time().to_json(),  # pylint: disable=protected-access
+          )
+      )
+    chart_specs.append(cpik_channel_chart)
     return formatter.create_card_html(
         template_env,
         PERFORMANCE_BREAKDOWN_CARD_SPEC,
         insights,
-        [
-            roi_effectiveness_chart,
-            roi_marginal_chart,
-            roi_channel_chart,
-            cpik_channel_chart,
-        ],
+        chart_specs,
     )
 
   def _create_response_curves_card_html(

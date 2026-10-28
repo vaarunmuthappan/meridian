@@ -21,6 +21,7 @@ from typing import Generator, Mapping
 import warnings
 import altair as alt
 from meridian import constants as c
+from meridian.analysis import _changepoint_plots
 from meridian.analysis import analyzer as analyzer_module
 from meridian.analysis import summary_text
 from meridian.common import currency as currency_module
@@ -2363,6 +2364,38 @@ class MediaSummary:
       title = summary_text.CPIK_CHANNEL_CHART_TITLE_FORMAT.format(ci='')
     return self._plot_metric_bar_chart(
         c.CPIK, summary_text.CPIK_LABEL, title, include_ci=include_ci
+    )
+
+  # TODO: Make it public when time-varying media effects are
+  # released.
+  def _plot_roi_over_time(self) -> alt.FacetChart:
+    """Plots the ROI of each interval between changepoints, by channel.
+
+    There is one subplot for each paid media and RF channel with changepoints,
+    in the model's channel order, and the subplots share the time axis. Each
+    interval is a flat step at its ROI, from its first time period to the end of
+    its last, with its credible interval as a shaded band over the same time
+    periods. Consecutive steps are joined by a vertical line at their
+    changepoint, so each subplot is a staircase that changes only at
+    changepoints, because a channel's effect is the same throughout an interval.
+    An interval without spend has no ROI and is left blank, and a channel
+    without spend in any interval has an empty subplot. The chart covers all
+    time periods of the training data, even when `selected_times` has fewer.
+
+    Returns:
+      An Altair plot of the ROI of each interval between changepoints.
+    """
+    ci = int(self._confidence_level * 100)
+    return _changepoint_plots.plot_interval_metric(
+        self._analyzer._roi_by_changepoint_interval(  # pylint: disable=protected-access
+            use_kpi=self._use_kpi, confidence_level=self._confidence_level
+        ),
+        metric=c.ROI,
+        label=summary_text.ROI_LABEL,
+        title=summary_text.ROI_OVER_TIME_CHART_TITLE_FORMAT.format(
+            ci=f'with {ci}% credible interval'
+        ),
+        time_coordinates=self._meridian.input_data.time_coordinates,
     )
 
   def plot_roi_vs_effectiveness(
