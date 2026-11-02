@@ -22,11 +22,12 @@ The unit tests generally follow this procedure:
   correct.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import dataclasses
 import datetime
 import math
 import os
+import re
 import tempfile
 from typing import Any
 import warnings
@@ -39,6 +40,7 @@ import arviz as az
 from meridian import backend
 from meridian import constants as c
 from meridian.analysis import analyzer
+from meridian.analysis import changepoint_effects
 from meridian.analysis import optimizer
 
 from meridian.analysis import summary_text
@@ -2846,6 +2848,7 @@ class OptimizerAlgorithmTest(parameterized.TestCase):
         'use_optimal_frequency': True,
         'max_frequency': None,
         'batch_size': 100,
+        '_changepoint_effect': None,
     }
     default_optimization_args.update(optimize_args)
 
@@ -2929,6 +2932,7 @@ class OptimizerAlgorithmTest(parameterized.TestCase):
         'use_optimal_frequency': True,
         'max_frequency': None,
         'batch_size': 100,
+        '_changepoint_effect': None,
     }
     with self.assertWarnsRegex(
         UserWarning,
@@ -6235,29 +6239,6 @@ class BudgetOptimizerInitTest(parameterized.TestCase):
     self.assertIs(opt._analyzer, custom_analyzer)
     self.assertIsNone(opt._meridian)
 
-  def test_init_with_changepoints_raises(self):
-    assert self.input_data.media_channel is not None
-    model_context = context.ModelContext(
-        input_data=self.input_data,
-        model_spec=spec._ModelSpecWithChangepoints(  # pylint: disable=protected-access
-            changepoints={
-                str(self.input_data.media_channel.values[0]): [
-                    self.input_data.time_coordinates.all_dates[2]
-                ]
-            }
-        ),
-    )
-    with self.assertRaisesRegex(
-        NotImplementedError,
-        '`BudgetOptimizer` does not support models with `changepoints` yet:'
-        ' its results would not reflect the time-varying effects.',
-    ):
-      optimizer.BudgetOptimizer(
-          analyzer=analyzer.Analyzer(
-              model_context=model_context, inference_data=az.InferenceData()
-          )
-      )
-
   def test_init_with_neither_raises_value_error(self):
     with self.assertRaisesRegex(
         ValueError, 'Either `analyzer` or `meridian` must be provided.'
@@ -6488,6 +6469,529 @@ class OptimizerAnalyzerSubclassTest(parameterized.TestCase):
     np.testing.assert_allclose(
         boosted_spend, expected_spend, atol=self.grid.spend_step_size
     )
+
+
+class BudgetOptimizerChangepointsTest(backend_test_utils.MeridianTestCase):
+  """Tests budget optimization of a model with changepoints."""
+
+  # pylint: disable=protected-access
+
+  _N_TIMES = 10
+
+  @classmethod
+  def setUpClass(cls):
+    super().setUpClass()
+    cls.data = data_test_utils.sample_input_data_non_revenue_revenue_per_kpi(
+        n_geos=2,
+        n_times=cls._N_TIMES,
+        n_media_times=12,
+        n_media_channels=2,
+        n_rf_channels=1,
+        seed=0,
+    )
+    assert cls.data.media_channel is not None
+    assert cls.data.rf_channel is not None
+    cls.dates = [str(date) for date in cls.data.time.values]
+    cls.media_0 = str(cls.data.media_channel.values[0])
+    cls.rf_channel = str(cls.data.rf_channel.values[0])
+    # Media channel 0 has a changepoint at time period 5, and the RF channel at
+    # 3 and 7. Media channel 1 has none.
+    cls.mmm = model.Meridian(
+        input_data=cls.data,
+        model_spec=spec._ModelSpecWithChangepoints(
+            changepoints={
+                str(cls.data.media_channel.values[0]): [cls.dates[5]],
+                str(cls.data.rf_channel.values[0]): [
+                    cls.dates[3],
+                    cls.dates[7],
+                ],
+            }
+        ),
+    )
+    cls.mmm.sample_prior(n_draws=4, seed=1)
+    cls.analyzer = analyzer.Analyzer(
+        model_context=cls.mmm.model_context,
+        inference_data=cls.mmm.inference_data,
+    )
+    cls.optimizer = optimizer.BudgetOptimizer(analyzer=cls.analyzer)
+    # Results shared by several tests, by changepoint effect.
+    cls._results_by_effect = {}
+    cls._grids_by_effect = {}
+
+  def _results(
+      self, effect: optimizer._ChangepointEffectArg | None
+  ) -> optimizer.OptimizationResults:
+    """Optimizes with `effect`, or without the argument for `None`.
+
+    The optimal frequency of RF channels isn't used, because
+    `Analyzer.response_curves` finds it from the posterior, which this model
+    doesn't have.
+
+    Args:
+      effect: The changepoint effect.
+
+    Returns:
+      The optimization results, computed once per effect.
+    """
+    # Mappings can't be dictionary keys, so effects are stored by description.
+    key = changepoint_effects._describe(effect)
+    if key not in self._results_by_effect:
+      if effect is None:
+        results = self.optimizer.optimize(
+            use_posterior=False, use_optimal_frequency=False
+        )
+      else:
+        results = self.optimizer.optimize(
+            use_posterior=False,
+            use_optimal_frequency=False,
+            _changepoint_effect=effect,
+        )
+      self._results_by_effect[key] = results
+    return self._results_by_effect[key]
+
+  def _grid(
+      self, effect: changepoint_effects.ChangepointEffect
+  ) -> optimizer.OptimizationGrid:
+    """The optimization grid for `effect`, computed once per effect.
+
+    Like `_results`, the grid doesn't use the optimal frequency.
+
+    Args:
+      effect: The changepoint effect.
+
+    Returns:
+      The optimization grid.
+    """
+    if effect not in self._grids_by_effect:
+      self._grids_by_effect[effect] = self.optimizer.create_optimization_grid(
+          use_posterior=False,
+          use_optimal_frequency=False,
+          _changepoint_effect=effect,
+      )
+    return self._grids_by_effect[effect]
+
+  def _incremental_outcome(
+      self, effect: optimizer._ChangepointEffectArg | None
+  ) -> np.ndarray:
+    """The mean incremental outcome at historical spend, by channel."""
+    return (
+        self._results(effect)
+        .nonoptimized_data.incremental_outcome.sel(metric=c.MEAN)
+        .values
+    )
+
+  def _filled_data(self) -> tensors.DataTensors:
+    return tensors.DataTensors().validate_and_fill_missing_data(
+        required_tensors_names=c.PAID_DATA,
+        model_context=self.mmm.model_context,
+    )
+
+  def test_optimize_uses_the_latest_interval_by_default(self):
+    self.assertEqual(
+        self._results(None).optimization_grid._changepoint_effect,
+        changepoint_effects.Latest(),
+    )
+    backend_test_utils.assert_allclose(
+        self._incremental_outcome(None),
+        self._incremental_outcome(changepoint_effects.Latest()),
+    )
+
+  def test_history_matches_the_analyzer(self):
+    results = self._results(changepoint_effects.History())
+    # The non-optimized spend is rounded, so it can differ slightly from the
+    # historical spend.
+    spend_ratio = (
+        results.nonoptimized_data.spend.values
+        / results.optimization_grid.historical_spend
+    )
+    filled_data = self._filled_data()
+    expected = np.mean(
+        self.analyzer.incremental_outcome(
+            use_posterior=False,
+            new_data=tensors.DataTensors(
+                media=filled_data.media * spend_ratio[:2],  # pyrefly: ignore[unsupported-operation]
+                reach=filled_data.reach * spend_ratio[2:],  # pyrefly: ignore[unsupported-operation]
+                frequency=filled_data.frequency,
+                revenue_per_kpi=filled_data.revenue_per_kpi,
+                time=filled_data.time,
+            ),
+            include_non_paid_channels=False,
+        ),
+        axis=(0, 1),
+    )
+    backend_test_utils.assert_allclose(
+        self._incremental_outcome(changepoint_effects.History()),
+        expected,
+        rtol=1e-5,
+    )
+
+  def test_effect_only_changes_channels_with_changepoints(self):
+    latest = self._incremental_outcome(changepoint_effects.Latest())
+    history = self._incremental_outcome(changepoint_effects.History())
+    # Media channel 1 has no changepoints.
+    backend_test_utils.assert_allclose(latest[1], history[1], rtol=1e-5)
+    for channel in (0, 2):
+      with self.subTest(channel=channel):
+        self.assertFalse(np.isclose(latest[channel], history[channel]))
+
+  def _mapping(self) -> dict[str, changepoint_effects.Interval]:
+    """Media channel 0 uses the interval of time period 2.
+
+    The RF channel isn't in the mapping, so it uses its latest interval.
+
+    Returns:
+      The mapping from channel names to intervals.
+    """
+    return {self.media_0: changepoint_effects.Interval(date=self.dates[2])}
+
+  def _describe_interval(self, channel: str, time_period: int) -> str:
+    """Writes a mapping of one channel to an interval, as in messages."""
+    date = tc.normalize_date(self.dates[time_period]).isoformat()
+    return f'{{{channel!r}: changepoint_effects.Interval(date={date!r})}}'
+
+  def test_mapping_gives_each_channel_its_own_interval(self):
+    mapping = self._incremental_outcome(self._mapping())
+    interval = self._incremental_outcome(
+        changepoint_effects.Interval(date=self.dates[2])
+    )
+    latest = self._incremental_outcome(changepoint_effects.Latest())
+    self.assertEqual(
+        self._results(self._mapping()).optimization_grid._changepoint_effect,
+        self._mapping(),
+    )
+    # Media channel 1 has no changepoints, so it matches both.
+    backend_test_utils.assert_allclose(mapping[:2], interval[:2], rtol=1e-5)
+    backend_test_utils.assert_allclose(mapping[2], latest[2], rtol=1e-5)
+    self.assertFalse(np.isclose(interval[0], latest[0]))
+    self.assertFalse(np.isclose(interval[2], latest[2]))
+
+  def test_grid_with_another_mapping_is_rebuilt(self):
+    grid = self._results(self._mapping()).optimization_grid
+    other = {self.rf_channel: changepoint_effects.Interval(date=self.dates[4])}
+    with self.assertWarnsRegex(
+        UserWarning,
+        re.escape(
+            'Given optimization grid was created with `changepoint_effect` ='
+            f' {self._describe_interval(self.media_0, 2)}, but optimization'
+            ' was called with `changepoint_effect` ='
+            f' {self._describe_interval(self.rf_channel, 4)}. A new grid will'
+            ' be created.'
+        ),
+    ):
+      results = self.optimizer.optimize(
+          use_posterior=False,
+          use_optimal_frequency=False,
+          optimization_grid=grid,
+          _changepoint_effect=other,
+      )
+    self.assertEqual(results.optimization_grid._changepoint_effect, other)
+
+  def test_grid_with_an_equal_mapping_is_reused(self):
+    grid = self._results(self._mapping()).optimization_grid
+    # The same interval, with the date given as a `datetime.date`.
+    equal = {
+        self.media_0: changepoint_effects.Interval(
+            date=tc.normalize_date(self.dates[2])
+        )
+    }
+    with warnings.catch_warnings():
+      warnings.simplefilter('error', UserWarning)
+      results = self.optimizer.optimize(
+          use_posterior=False,
+          use_optimal_frequency=False,
+          optimization_grid=grid,
+          _changepoint_effect=equal,
+      )
+    self.assertIs(results.optimization_grid, grid)
+
+  def test_mapping_with_channels_without_changepoints_raises(self):
+    assert self.data.media_channel is not None
+    media_1 = str(self.data.media_channel.values[1])
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        'The `changepoint_effect` mapping has channels without changepoints:'
+        f' [{media_1!r}]. Its keys must be channels with changepoints:'
+        f' [{self.media_0!r}, {self.rf_channel!r}].',
+    ):
+      self.optimizer.optimize(
+          use_posterior=False,
+          _changepoint_effect={
+              media_1: changepoint_effects.Interval(date=self.dates[2])
+          },
+      )
+
+  def test_mapping_is_checked_before_the_effect_is_used(self):
+    assert self.data.media_channel is not None
+    media_1 = str(self.data.media_channel.values[1])
+    effect = {media_1: changepoint_effects.Interval(date=self.dates[2])}
+    with self.assertRaisesRegex(ValueError, 'channels without changepoints'):
+      with self.optimizer._use_changepoint_effect(effect):
+        self.fail('The mapping was used without being checked.')
+
+  def test_mapping_to_non_interval_raises(self):
+    effect: dict[str, Any] = {self.media_0: changepoint_effects.Latest()}
+    with self.assertRaisesWithLiteralMatch(
+        TypeError,
+        f'`changepoint_effect[{self.media_0!r}]` must be'
+        ' `changepoint_effects.Interval(date=...)`, got'
+        f' {changepoint_effects.Latest()!r}.',
+    ):
+      self.optimizer.create_optimization_grid(
+          use_posterior=False,
+          _changepoint_effect=effect,
+      )
+
+  def test_mapping_with_a_date_after_the_training_data_raises(self):
+    # The data is weekly, so its last day is 6 days after the last date.
+    last_day = tc.normalize_date(self.dates[-1]) + datetime.timedelta(days=6)
+    with self.assertRaisesWithLiteralMatch(
+        ValueError,
+        f'`changepoint_effect[{self.rf_channel!r}]`,'
+        " `changepoint_effects.Interval(date='2100-01-04')`, must be a date in"
+        f' the training data ({self.dates[0]} to {last_day.isoformat()}). To'
+        " use the effect of the channel's latest interval, leave"
+        f' {self.rf_channel!r} out of the mapping.',
+    ):
+      self.optimizer.create_optimization_grid(
+          use_posterior=False,
+          _changepoint_effect={
+              self.rf_channel: changepoint_effects.Interval(date='2100-01-04')
+          },
+      )
+
+  def test_interval_of_the_last_date_matches_latest(self):
+    backend_test_utils.assert_allclose(
+        self._incremental_outcome(
+            changepoint_effects.Interval(date=self.dates[-1])
+        ),
+        self._incremental_outcome(changepoint_effects.Latest()),
+        rtol=1e-5,
+    )
+
+  @parameterized.product(
+      name=['latest', 'history', 'interval', 'mapping'], selected=[False, True]
+  )
+  def test_media_grid_matches_the_analyzer(self, name: str, selected: bool):
+    effect = {
+        'latest': changepoint_effects.Latest(),
+        'history': changepoint_effects.History(),
+        'interval': changepoint_effects.Interval(date=self.dates[2]),
+        'mapping': self._mapping(),
+    }[name]
+    selected_geos = [str(self.data.geo.values[0])] if selected else None
+    selected_times = self.dates[4:8] if selected else None
+    multipliers = np.array([[1.0, 1.0, 1.0], [0.5, 2.0, 1.0]])
+    filled_data = self._filled_data()
+    with self.optimizer._use_changepoint_effect(effect):
+      grid = self.optimizer._compute_media_incremental_outcome_grid(
+          multipliers_grid=multipliers,
+          filled_data=filled_data,
+          selected_geos=selected_geos,
+          selected_times=selected_times,
+          use_posterior=False,
+      )
+      for row, multiplier in enumerate(multipliers):
+        with self.subTest(row=row):
+          expected = np.mean(
+              self.analyzer.incremental_outcome(
+                  use_posterior=False,
+                  new_data=tensors.DataTensors(
+                      media=filled_data.media * multiplier[:2],  # pyrefly: ignore[unsupported-operation]
+                      reach=filled_data.reach,
+                      frequency=filled_data.frequency,
+                      revenue_per_kpi=filled_data.revenue_per_kpi,
+                      time=filled_data.time,
+                  ),
+                  include_non_paid_channels=False,
+                  selected_geos=selected_geos,
+                  selected_times=selected_times,
+              ),
+              axis=(0, 1),
+          )
+          backend_test_utils.assert_allclose(
+              grid[row], expected[:2], rtol=1e-5
+          )
+
+  def _last_time_periods(self, dates: Sequence[str]) -> tensors.DataTensors:
+    """The data of the last 4 time periods, with the given dates."""
+    model_context = self.mmm.model_context
+    media_tensors = model_context.media_tensors
+    rf_tensors = model_context.rf_tensors
+    last = slice(-4, None)
+    return tensors.DataTensors(
+        media=media_tensors.media[..., last, :],  # pyrefly: ignore[unsupported-operation]
+        media_spend=media_tensors.media_spend[..., last, :],  # pyrefly: ignore[unsupported-operation]
+        reach=rf_tensors.reach[..., last, :],  # pyrefly: ignore[unsupported-operation]
+        frequency=rf_tensors.frequency[..., last, :],  # pyrefly: ignore[unsupported-operation]
+        rf_spend=rf_tensors.rf_spend[..., last, :],  # pyrefly: ignore[unsupported-operation]
+        revenue_per_kpi=model_context.revenue_per_kpi[..., last],  # pyrefly: ignore[unsupported-operation]
+        time=dates,
+    )
+
+  def _future_data(self) -> tensors.DataTensors:
+    """The last 4 time periods of the data, moved after the training data."""
+    return self._last_time_periods([
+        (tc.normalize_date(self.dates[-1]) + datetime.timedelta(weeks=i))
+        .strftime(c.DATE_FORMAT)
+        for i in range(1, 5)
+    ])
+
+  def test_latest_uses_the_same_effect_after_the_training_data(self):
+    future = self.optimizer.optimize(
+        use_posterior=False,
+        use_optimal_frequency=False,
+        new_data=self._future_data(),
+    )
+    training = self.optimizer.optimize(
+        use_posterior=False,
+        use_optimal_frequency=False,
+        new_data=self._last_time_periods(self.dates[-4:]),
+    )
+    for dataset in ('nonoptimized_data', 'optimized_data'):
+      with self.subTest(dataset=dataset):
+        backend_test_utils.assert_allclose(
+            getattr(future, dataset).incremental_outcome.values,
+            getattr(training, dataset).incremental_outcome.values,
+            rtol=1e-5,
+        )
+
+  def test_history_of_time_periods_after_the_training_data_raises(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`changepoint_effects.History\(\)` uses each time period's own"
+        ' effect',
+    ):
+      self.optimizer.optimize(
+          use_posterior=False,
+          new_data=self._future_data(),
+          _changepoint_effect=changepoint_effects.History(),
+      )
+
+  def test_optimal_frequency_uses_the_effect(self):
+    effect = changepoint_effects.Interval(date=self.dates[2])
+    effects_used = []
+    optimal_freq = self.analyzer.optimal_freq
+
+    def record_effect(*args, **kwargs):
+      effects_used.append(self.analyzer._changepoint_effect)
+      return optimal_freq(*args, **kwargs)
+
+    self.enter_context(
+        mock.patch.object(
+            self.analyzer,
+            'optimal_freq',
+            autospec=True,
+            side_effect=record_effect,
+        )
+    )
+    grid = self.optimizer.create_optimization_grid(
+        use_posterior=False, _changepoint_effect=effect
+    )
+    self.assertEqual(effects_used, [effect])
+    with self.analyzer._use_changepoint_effect(effect):
+      expected = optimal_freq(use_posterior=False).optimal_frequency.values
+    backend_test_utils.assert_allclose(grid.optimal_frequency, expected)
+
+  def test_grid_with_another_effect_is_rebuilt(self):
+    grid = self._grid(changepoint_effects.History())
+    self.assertEqual(grid._changepoint_effect, changepoint_effects.History())
+    with self.assertWarnsRegex(
+        UserWarning,
+        'Given optimization grid was created with `changepoint_effect` ='
+        r' changepoint_effects.History\(\), but optimization was called with'
+        r' `changepoint_effect` = changepoint_effects.Latest\(\). A new grid'
+        ' will be created.',
+    ):
+      results = self.optimizer.optimize(
+          use_posterior=False,
+          use_optimal_frequency=False,
+          optimization_grid=grid,
+      )
+    self.assertEqual(
+        results.optimization_grid._changepoint_effect,
+        changepoint_effects.Latest(),
+    )
+
+  def test_grid_with_the_same_effect_is_reused(self):
+    grid = self._grid(changepoint_effects.History())
+    with warnings.catch_warnings():
+      warnings.simplefilter('error', UserWarning)
+      results = self.optimizer.optimize(
+          use_posterior=False,
+          use_optimal_frequency=False,
+          optimization_grid=grid,
+          _changepoint_effect=changepoint_effects.History(),
+      )
+    self.assertIs(results.optimization_grid, grid)
+
+  def test_response_curves_use_the_effect(self):
+    latest = self._results(changepoint_effects.Latest()).get_response_curves()
+    history = self._results(
+        changepoint_effects.History()
+    ).get_response_curves()
+    media_0, media_1 = [str(name) for name in self.data.media_channel.values]  # pyrefly: ignore[missing-attribute]
+    outcome = c.INCREMENTAL_OUTCOME
+    backend_test_utils.assert_allclose(
+        latest[outcome].sel(channel=media_1).values,
+        history[outcome].sel(channel=media_1).values,
+        rtol=1e-5,
+    )
+    self.assertFalse(
+        np.allclose(
+            latest[outcome].sel(channel=media_0).values,
+            history[outcome].sel(channel=media_0).values,
+        )
+    )
+
+  def test_non_effect_raises(self):
+    with self.assertRaisesRegex(
+        TypeError, r'Did you mean `changepoint_effects.Latest\(\)`\?'
+    ):
+      self.optimizer.optimize(
+          use_posterior=False,
+          _changepoint_effect='latest',  # pyrefly: ignore[bad-argument-type]
+      )
+
+  def test_interval_after_the_training_data_raises(self):
+    with self.assertRaisesRegex(
+        ValueError,
+        r"`changepoint_effects.Interval\(date='2100-01-04'\)` must be a date"
+        ' in the training data',
+    ):
+      self.optimizer.optimize(
+          use_posterior=False,
+          _changepoint_effect=changepoint_effects.Interval(date='2100-01-04'),
+      )
+
+  def test_model_without_changepoints_ignores_the_effect(self):
+    mmm = model.Meridian(input_data=self.data, model_spec=spec.ModelSpec())
+    mmm.sample_prior(n_draws=4, seed=1)
+    budget_optimizer = optimizer.BudgetOptimizer(
+        analyzer=analyzer.Analyzer(
+            model_context=mmm.model_context,
+            inference_data=mmm.inference_data,
+        )
+    )
+    default = budget_optimizer.optimize(
+        use_posterior=False, use_optimal_frequency=False
+    )
+    self.assertIsNone(default.optimization_grid._changepoint_effect)
+    # Neither the channel nor the date of the mapping is checked.
+    for effect in (
+        changepoint_effects.History(),
+        {'Search': changepoint_effects.Interval(date='2100-01-04')},
+    ):
+      with self.subTest(effect=changepoint_effects._describe(effect)):
+        results = budget_optimizer.optimize(
+            use_posterior=False,
+            use_optimal_frequency=False,
+            _changepoint_effect=effect,
+        )
+        self.assertIsNone(results.optimization_grid._changepoint_effect)
+        np.testing.assert_array_equal(
+            default.optimized_data.incremental_outcome.values,
+            results.optimized_data.incremental_outcome.values,
+        )
 
 
 if __name__ == '__main__':
