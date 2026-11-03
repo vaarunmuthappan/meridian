@@ -819,13 +819,22 @@ Convergence Check:
     self.assertIn("High ROI", repr_output)
     self.assertIn("Low ROI", repr_output)
     self.assertIn("Calibration Score", repr_output)
-    expected_row = (
-        f"{'ch1':<20} | {'79.0':<18} | {review_constants.DRIVER:<15} |"
-        f" {review_constants.NON_DRIVER:<15} |"
-        f" {review_constants.NON_DRIVER:<17} |"
-        f" {review_constants.NON_DRIVER:<14}"
+    expected_header = (
+        f"{'Channel':<20} | {'Calibration Score':<18} | {'High ROI':<15} |"
+        f" {'Low ROI':<15} | {'High Variance ROI':<17} |"
+        f" {'Potential Bias':<15}"
     )
+    self.assertLen(expected_header, 115)
+    self.assertIn(expected_header, repr_output)
+    expected_row = (
+        f"{'ch1':<20} | {'79.0':<18} | {review_constants.CONTRIBUTOR:<15} |"
+        f" {review_constants.NON_CONTRIBUTOR:<15} |"
+        f" {review_constants.NON_CONTRIBUTOR:<17} |"
+        f" {review_constants.NON_CONTRIBUTOR:<15}"
+    )
+    self.assertLen(expected_row, 115)
     self.assertIn(expected_row, repr_output)
+    self.assertNotIn("Driver", repr_output)
     expected_calibrated = (
         f"{'ch2':<20} | {'100.0':<18} | {'-' * 29} Calibrated {'-' * 29}"
     )
@@ -862,8 +871,11 @@ Convergence Check:
         "uncalibrated_channel",
         "calibrated_channel",
         "Calibrated",
-        f'<chip class="driver">{review_constants.DRIVER}</chip>',
-        f'<chip class="non-driver">{review_constants.NON_DRIVER}</chip>',
+        f'<chip class="contributor">{review_constants.CONTRIBUTOR}</chip>',
+        (
+            '<chip class="non-contributor">'
+            f"{review_constants.NON_CONTRIBUTOR}</chip>"
+        ),
         "Score",
         "channel-score-chart",
         "channel-score-chart warning",
@@ -900,6 +912,8 @@ Convergence Check:
     ):
       self.assertIn(s, rec_card)
     self.assertNotIn("Implausible ROI", rec_card)
+    self.assertNotIn('<chip class="driver">', rec_card)
+    self.assertNotIn('<chip class="non-driver">', rec_card)
 
     health_card = summary._create_health_card_html()
     for s in (
@@ -939,7 +953,7 @@ Convergence Check:
       self.assertIn(s, calib_summary_card)
     self.assertNotIn("calibration-score-chart warning", calib_summary_card)
 
-  def test_channel_recommendation_card_html_custom_driver_constants(self):
+  def test_channel_recommendation_card_html_custom_contributor_constants(self):
     summary = _create_test_summary(
         results_list=_mock_check_results(
             high_roi_channels=["uncalibrated_channel"]
@@ -950,11 +964,17 @@ Convergence Check:
         },
     )
     with mock.patch.object(
-        review_constants, "DRIVER", "CustomDriver"
-    ), mock.patch.object(review_constants, "NON_DRIVER", "CustomNonDriver"):
+        review_constants, "CONTRIBUTOR", "CustomContributor"
+    ), mock.patch.object(
+        review_constants, "NON_CONTRIBUTOR", "CustomNonContributor"
+    ):
       rec_card = summary._create_channel_recommendation_card_html()
-      self.assertIn('<chip class="driver">CustomDriver</chip>', rec_card)
-      self.assertIn('<chip class="non-driver">CustomNonDriver</chip>', rec_card)
+      self.assertIn(
+          '<chip class="contributor">CustomContributor</chip>', rec_card
+      )
+      self.assertIn(
+          '<chip class="non-contributor">CustomNonContributor</chip>', rec_card
+      )
 
   def test_channel_recommendation_card_html_with_charts(self):
     summary = _create_test_summary(
@@ -1312,21 +1332,21 @@ Convergence Check:
 
   @parameterized.named_parameters(
       dict(
-          testcase_name="score_below_threshold_with_driver",
+          testcase_name="score_below_threshold_with_contributor",
           check_results=_mock_check_results(
-              high_roi_channels=["driver_channel"]
+              high_roi_channels=["contributor_channel"]
           ),
-          channel_scores={"driver_channel": 60.0},
+          channel_scores={"contributor_channel": 60.0},
           expected_warning_banner=True,
           expected_warning_message=(
               "We recommend incrementality experiments to improve prior"
-              " accuracy for &#39;driver_channel&#39;:"
-              " &#39;driver_channel&#39; shows issues with high ROI. See"
+              " accuracy for &#39;contributor_channel&#39;:"
+              " &#39;contributor_channel&#39; shows issues with high ROI. See"
               " Channel calibration recommendation below for more details."
           ),
       ),
       dict(
-          testcase_name="score_below_threshold_without_driver",
+          testcase_name="score_below_threshold_without_contributor",
           check_results=[],
           channel_scores={"low_score_channel": 50.0},
           expected_warning_banner=True,
@@ -1337,38 +1357,38 @@ Convergence Check:
           ),
       ),
       dict(
-          testcase_name="score_above_threshold_with_driver",
+          testcase_name="score_above_threshold_with_contributor",
           check_results=_mock_check_results(
-              high_roi_channels=["driver_channel"]
+              high_roi_channels=["contributor_channel"]
           ),
-          channel_scores={"driver_channel": 85.0},
+          channel_scores={"contributor_channel": 85.0},
           expected_warning_banner=False,
           expected_warning_message=(
               "No channels require calibration. However,"
-              " &#39;driver_channel&#39; shows issues with high ROI. We"
+              " &#39;contributor_channel&#39; shows issues with high ROI. We"
               " recommend reviewing the table and plots below to check if this"
               " channel may be a good candidate for calibration via an"
               " incrementality experiment such as those run with Meridian GeoX."
           ),
       ),
       dict(
-          testcase_name="score_above_threshold_without_driver",
+          testcase_name="score_above_threshold_without_contributor",
           check_results=[],
           channel_scores={"clean_channel": 85.0},
           expected_warning_banner=False,
           expected_warning_message=None,
       ),
       dict(
-          testcase_name="calibrated_driver_and_low_score_ignored",
+          testcase_name="calibrated_contributor_and_low_score_ignored",
           check_results=_mock_check_results(
-              high_roi_channels=["calibrated_driver_ch"]
+              high_roi_channels=["calibrated_contributor_ch"]
           ),
           calibrated_channels=[
-              "calibrated_driver_ch",
+              "calibrated_contributor_ch",
               "calibrated_low_score_ch",
           ],
           channel_scores={
-              "calibrated_driver_ch": 100.0,
+              "calibrated_contributor_ch": 100.0,
               "calibrated_low_score_ch": 50.0,
               "uncalibrated_clean_ch": 95.0,
           },
@@ -1402,7 +1422,7 @@ Convergence Check:
       ),
       dict(
           testcase_name=(
-              "multiple_drivers_above_threshold_table_order_preserved"
+              "multiple_contributors_above_threshold_table_order_preserved"
           ),
           check_results=_mock_check_results(
               high_roi_channels=["search"],
@@ -1710,7 +1730,7 @@ Convergence Check:
     issues = summary._get_recommended_channels_with_issues()
     self.assertEqual(issues, {"channel_name": [expected_issue_type]})
     self.assertEqual(
-        summary._uncalibrated_channels_with_driver_issues(), issues
+        summary._uncalibrated_channels_with_contributor_issues(), issues
     )
 
   @parameterized.named_parameters(
@@ -1767,7 +1787,7 @@ Convergence Check:
     issues = summary._get_recommended_channels_with_issues()
     self.assertEqual(list(issues.keys()), expected_channels)
     self.assertEqual(
-        summary._uncalibrated_channels_with_driver_issues(), issues
+        summary._uncalibrated_channels_with_contributor_issues(), issues
     )
 
 
@@ -2083,6 +2103,8 @@ class ReviewConstantsTest(parameterized.TestCase):
     )
 
   def test_driver_constants(self):
+    self.assertEqual(review_constants.CONTRIBUTOR, "Contributor")
+    self.assertEqual(review_constants.NON_CONTRIBUTOR, "Non-Contributor")
     self.assertEqual(review_constants.DRIVER, "Driver")
     self.assertEqual(review_constants.NON_DRIVER, "Non-Driver")
 
@@ -2726,7 +2748,7 @@ class CalibrationScoreTest(parameterized.TestCase):
     self.assertEqual(scores["ch2"], 100.0)
     self.assertAlmostEqual(summary.calibration_score, 75.0, places=5)
 
-  def test_channel_calibration_scores_warning_without_driver_issues(self):
+  def test_channel_calibration_scores_warning_without_contributor_issues(self):
     mock_implausible = results.ImplausibleROICheckResult(
         case=results.ImplausibleROIAggregateCases.PASS,
         channel_results=[
@@ -2809,10 +2831,25 @@ class CalibrationScoreTest(parameterized.TestCase):
     self.assertEqual(summary.calibration_score, 100.0)
 
   @parameterized.named_parameters(
-      ("score_lt_threshold_with_driver_issues", {"ch1": 60.0}, True, True),
-      ("score_lt_threshold_without_driver_issues", {"ch1": 60.0}, False, True),
-      ("score_ge_threshold_with_driver_issues", {"ch1": 80.0}, True, False),
-      ("score_ge_threshold_without_driver_issues", {"ch1": 80.0}, False, False),
+      ("score_lt_threshold_with_contributor_issues", {"ch1": 60.0}, True, True),
+      (
+          "score_lt_threshold_without_contributor_issues",
+          {"ch1": 60.0},
+          False,
+          True,
+      ),
+      (
+          "score_ge_threshold_with_contributor_issues",
+          {"ch1": 80.0},
+          True,
+          False,
+      ),
+      (
+          "score_ge_threshold_without_contributor_issues",
+          {"ch1": 80.0},
+          False,
+          False,
+      ),
       (
           "calibrated_channel_with_low_score_ignored",
           {"ch1": 50.0},
@@ -2826,19 +2863,21 @@ class CalibrationScoreTest(parameterized.TestCase):
   def test_has_calibration_warning(
       self,
       channel_scores: dict[str, float],
-      has_driver_issue: bool,
+      has_contributor_issue: bool,
       expected_warning: bool,
       channel_calibration_status: dict[str, bool] | None = None,
   ):
     if channel_calibration_status is None:
       channel_calibration_status = {ch: False for ch in channel_scores}
-    driver_channels = (
+    contributor_channels = (
         list(channel_calibration_status.keys()) or ["ch1"]
-        if has_driver_issue
+        if has_contributor_issue
         else ()
     )
     summary = _create_test_summary(
-        results_list=_mock_check_results(high_roi_channels=driver_channels),
+        results_list=_mock_check_results(
+            high_roi_channels=contributor_channels
+        ),
         health_score=85.0,
         channel_calibration_status=channel_calibration_status,
         channel_scores=channel_scores,
@@ -2879,7 +2918,7 @@ class CalibrationScoreTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       (
-          "scores_and_drivers",
+          "scores_and_contributors",
           ["pmax", "search"],
           {
               "pmax": [review_constants.HIGH_ROI],
@@ -2893,13 +2932,13 @@ class CalibrationScoreTest(parameterized.TestCase):
           ),
       ),
       (
-          "no_scores_no_drivers",
+          "no_scores_no_contributors",
           [],
           {},
           results.NO_CHANNELS_REQUIRE_CALIBRATION_RECOMMENDATION,
       ),
       (
-          "scores_no_drivers",
+          "scores_no_contributors",
           ["pmax"],
           {},
           (
@@ -2909,7 +2948,7 @@ class CalibrationScoreTest(parameterized.TestCase):
           ),
       ),
       (
-          "no_scores_single_driver",
+          "no_scores_single_contributor",
           [],
           {"search": [review_constants.HIGH_VARIANCE]},
           (
@@ -2921,7 +2960,7 @@ class CalibrationScoreTest(parameterized.TestCase):
           ),
       ),
       (
-          "no_scores_multi_channel_drivers",
+          "no_scores_multi_channel_contributors",
           [],
           {
               "pmax": [review_constants.HIGH_ROI],
@@ -2937,7 +2976,7 @@ class CalibrationScoreTest(parameterized.TestCase):
           ),
       ),
       (
-          "no_scores_single_channel_multi_drivers",
+          "no_scores_single_channel_multi_contributors",
           [],
           {
               "pmax": [
@@ -2954,7 +2993,7 @@ class CalibrationScoreTest(parameterized.TestCase):
           ),
       ),
       (
-          "scores_and_drivers_order_preserved",
+          "scores_and_contributors_order_preserved",
           ["search", "display"],
           {
               "search": [review_constants.HIGH_ROI],
@@ -2971,14 +3010,14 @@ class CalibrationScoreTest(parameterized.TestCase):
   def test_build_calibration_recommendation_text(
       self,
       recommended_channels: list[str],
-      driver_issues_by_channel: dict[str, list[str]],
+      contributor_issues_by_channel: dict[str, list[str]],
       expected_recommendation: str,
   ):
     # Location (c): channel recommendation
     self.assertEqual(
         results.build_calibration_recommendation_text(
             recommended_channels=recommended_channels,
-            driver_issues_by_channel=driver_issues_by_channel,
+            contributor_issues_by_channel=contributor_issues_by_channel,
             location=review_constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
         ),
         expected_recommendation,
@@ -2992,7 +3031,7 @@ class CalibrationScoreTest(parameterized.TestCase):
     self.assertEqual(
         results.build_calibration_recommendation_text(
             recommended_channels=recommended_channels,
-            driver_issues_by_channel=driver_issues_by_channel,
+            contributor_issues_by_channel=contributor_issues_by_channel,
             location=review_constants.CALIBRATION_TEXT_CALIBRATION_SUMMARY,
         ),
         expected_summary,
@@ -3011,7 +3050,7 @@ class CalibrationScoreTest(parameterized.TestCase):
     self.assertEqual(
         results.build_calibration_recommendation_text(
             recommended_channels=recommended_channels,
-            driver_issues_by_channel=driver_issues_by_channel,
+            contributor_issues_by_channel=contributor_issues_by_channel,
             location=review_constants.CALIBRATION_TEXT_METRICS_CHECK,
             calibration_score=80.0,
         ),
@@ -3044,7 +3083,7 @@ class CalibrationScoreTest(parameterized.TestCase):
     self.assertEqual(
         results.build_calibration_recommendation_text(
             recommended_channels=["search"],
-            driver_issues_by_channel={
+            contributor_issues_by_channel={
                 "search": [
                     review_constants.HIGH_ROI,
                     review_constants.HIGH_ROI,
@@ -3056,6 +3095,58 @@ class CalibrationScoreTest(parameterized.TestCase):
         " 'search': 'search' shows issues with high ROI. See Channel"
         " calibration recommendation below for more details.",
     )
+
+  def test_build_calibration_recommendation_text_deprecated_driver_kwarg(self):
+    issues = {"search": [review_constants.HIGH_ROI]}
+    with self.assertWarnsRegex(
+        DeprecationWarning, "driver_issues_by_channel.*deprecated"
+    ):
+      legacy_text = results.build_calibration_recommendation_text(
+          recommended_channels=["search"],
+          driver_issues_by_channel=issues,
+          location=review_constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
+      )
+    self.assertEqual(
+        legacy_text,
+        results.build_calibration_recommendation_text(
+            recommended_channels=["search"],
+            contributor_issues_by_channel=issues,
+            location=review_constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
+        ),
+    )
+
+    with self.assertWarnsRegex(
+        DeprecationWarning, "driver_issues_by_channel.*deprecated"
+    ):
+      empty_legacy_text = results.build_calibration_recommendation_text(
+          driver_issues_by_channel={}
+      )
+    self.assertEqual(
+        empty_legacy_text,
+        results.NO_CHANNELS_REQUIRE_CALIBRATION_RECOMMENDATION,
+    )
+
+  def test_build_calibration_recommendation_text_conflicting_kwargs_raises(
+      self,
+  ):
+    with self.assertRaisesRegex(
+        ValueError,
+        "Cannot specify both `contributor_issues_by_channel` and"
+        " `driver_issues_by_channel`",
+    ):
+      results.build_calibration_recommendation_text(
+          contributor_issues_by_channel={"search": [review_constants.HIGH_ROI]},
+          driver_issues_by_channel={"search": [review_constants.HIGH_ROI]},
+      )
+    with self.assertRaisesRegex(
+        ValueError,
+        "Cannot specify both `contributor_issues_by_channel` and"
+        " `driver_issues_by_channel`",
+    ):
+      results.build_calibration_recommendation_text(
+          contributor_issues_by_channel={},
+          driver_issues_by_channel={},
+      )
 
 
 if __name__ == "__main__":

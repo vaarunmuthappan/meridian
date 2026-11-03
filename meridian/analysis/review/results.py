@@ -22,6 +22,7 @@ import enum
 import functools
 import os
 from typing import Any
+import warnings
 
 import jinja2
 import markupsafe
@@ -1292,7 +1293,7 @@ class ReviewSummary:
       report.append(
           f"{'Channel':<20} | {'Calibration Score':<18} | {'High ROI':<15} |"
           f" {'Low ROI':<15} | {'High Variance ROI':<17} |"
-          f" {'Potential Bias':<14}"
+          f" {'Potential Bias':<15}"
       )
       report.append("-" * 115)
 
@@ -1307,28 +1308,28 @@ class ReviewSummary:
           )
         else:
           high_roi_str = (
-              constants.DRIVER
+              constants.CONTRIBUTOR
               if rec[constants.HIGH_ROI_STATUS] == Status.REVIEW
-              else constants.NON_DRIVER
+              else constants.NON_CONTRIBUTOR
           )
           low_roi_str = (
-              constants.DRIVER
+              constants.CONTRIBUTOR
               if rec[constants.LOW_ROI_STATUS] == Status.REVIEW
-              else constants.NON_DRIVER
+              else constants.NON_CONTRIBUTOR
           )
           hv_str = (
-              constants.DRIVER
+              constants.CONTRIBUTOR
               if rec[constants.HIGH_VARIANCE_STATUS] == Status.REVIEW
-              else constants.NON_DRIVER
+              else constants.NON_CONTRIBUTOR
           )
           pb_str = (
-              constants.DRIVER
+              constants.CONTRIBUTOR
               if rec[constants.POTENTIAL_BIAS_STATUS] == Status.REVIEW
-              else constants.NON_DRIVER
+              else constants.NON_CONTRIBUTOR
           )
           report.append(
               f"{channel_name:<20} | {score_str:<18} | {high_roi_str:<15}"
-              f" | {low_roi_str:<15} | {hv_str:<17} | {pb_str:<14}"
+              f" | {low_roi_str:<15} | {hv_str:<17} | {pb_str:<15}"
           )
       report.append("-" * 115)
 
@@ -1414,8 +1415,8 @@ class ReviewSummary:
     )
     calibration_recommendation_text = build_calibration_recommendation_text(
         recommended_channels=recommended_channels,
-        driver_issues_by_channel=(
-            self._uncalibrated_channels_with_driver_issues()
+        contributor_issues_by_channel=(
+            self._uncalibrated_channels_with_contributor_issues()
         ),
         location=constants.CALIBRATION_TEXT_METRICS_CHECK,
         calibration_score=calibration_score,
@@ -1441,11 +1442,11 @@ class ReviewSummary:
     """Creates the HTML snippet for the Channel Calibration Recommendation Card."""
     status = self.channel_calibration_status or {}
     recommended_channels = self.channels_recommended_for_calibration
-    issues_by_channel = self._uncalibrated_channels_with_driver_issues()
+    issues_by_channel = self._uncalibrated_channels_with_contributor_issues()
 
     banner_text = build_calibration_recommendation_text(
         recommended_channels=recommended_channels,
-        driver_issues_by_channel=issues_by_channel,
+        contributor_issues_by_channel=issues_by_channel,
         location=constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
     )
 
@@ -1625,8 +1626,8 @@ class ReviewSummary:
         recommendation_info=recommendation_info,
         calibration_score_threshold=constants.CALIBRATION_SCORE_THRESHOLD,
         calibration_score_yellow_color=constants.CALIBRATION_SCORE_YELLOW_COLOR,
-        driver_text=constants.DRIVER,
-        non_driver_text=constants.NON_DRIVER,
+        contributor_text=constants.CONTRIBUTOR,
+        non_contributor_text=constants.NON_CONTRIBUTOR,
         implausible_roi_chart_json=self.implausible_roi_chart_json,
         high_variance_chart_json=self.high_variance_chart_json,
         potential_bias_chart_json=self.potential_bias_chart_json,
@@ -1648,11 +1649,11 @@ class ReviewSummary:
     """Creates the HTML snippet for the Meridian GeoX Calibration Summary Card."""
     status = self.channel_calibration_status or {}
     recommended_channels = self.channels_recommended_for_calibration
-    issues_by_channel = self._uncalibrated_channels_with_driver_issues()
+    issues_by_channel = self._uncalibrated_channels_with_contributor_issues()
 
     recommendation_text = build_calibration_recommendation_text(
         recommended_channels=recommended_channels,
-        driver_issues_by_channel=issues_by_channel,
+        contributor_issues_by_channel=issues_by_channel,
         location=constants.CALIBRATION_TEXT_CALIBRATION_SUMMARY,
     )
 
@@ -1677,7 +1678,7 @@ class ReviewSummary:
         recommendation_text=recommendation_text,
     )
 
-  def _uncalibrated_channels_with_driver_issues(
+  def _uncalibrated_channels_with_contributor_issues(
       self,
   ) -> Mapping[str, list[str]]:
     """Returns a mapping of uncalibrated channel name to list of flagged issues."""
@@ -1708,7 +1709,7 @@ class ReviewSummary:
     }
 
   _get_recommended_channels_with_issues = (
-      _uncalibrated_channels_with_driver_issues
+      _uncalibrated_channels_with_contributor_issues
   )
 
   def _create_calibration_overview_card_html(self) -> str:
@@ -1891,32 +1892,56 @@ def _format_list_with_and(items: Sequence[str]) -> str:
 
 def build_calibration_recommendation_text(
     recommended_channels: Sequence[str] | None = None,
-    driver_issues_by_channel: Mapping[str, Sequence[str]] | None = None,
+    contributor_issues_by_channel: Mapping[str, Sequence[str]] | None = None,
     location: str = constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
     calibration_score: float | None = None,
+    *,
+    driver_issues_by_channel: Mapping[str, Sequence[str]] | None = None,
 ) -> str:
   """Constructs the calibration recommendation message for a given location.
 
   Args:
     recommended_channels: List of uncalibrated channel names with score below
       threshold.
-    driver_issues_by_channel: Mapping of uncalibrated channel names to their
-      flagged driver issue names.
+    contributor_issues_by_channel: Mapping of uncalibrated channel names to
+      their flagged contributor issue names.
     location: One of constants.CALIBRATION_TEXT_METRICS_CHECK,
       constants.CALIBRATION_TEXT_CALIBRATION_SUMMARY, or
       constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION.
     calibration_score: Overall calibration score (used for metrics_check).
+    driver_issues_by_channel: Deprecated alias for
+      `contributor_issues_by_channel`.
 
   Returns:
     The formatted recommendation string for the user.
+
+  Raises:
+    ValueError: If `location` is unknown, or if both
+      `contributor_issues_by_channel` and `driver_issues_by_channel` are
+      provided.
   """
+  if driver_issues_by_channel is not None:
+    if contributor_issues_by_channel is not None:
+      raise ValueError(
+          "Cannot specify both `contributor_issues_by_channel` and"
+          " `driver_issues_by_channel`."
+      )
+    warnings.warn(
+        "`driver_issues_by_channel` is deprecated and will be removed in a"
+        " future version of Meridian. Use `contributor_issues_by_channel`"
+        " instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    contributor_issues_by_channel = driver_issues_by_channel
+
   channels = list(dict.fromkeys(recommended_channels or []))
   has_recommended = bool(channels)
-  drivers_dict = driver_issues_by_channel or {}
-  active_drivers = {
-      ch: issues for ch, issues in drivers_dict.items() if issues
+  contributors_dict = contributor_issues_by_channel or {}
+  active_contributors = {
+      ch: issues for ch, issues in contributors_dict.items() if issues
   }
-  has_drivers = bool(active_drivers)
+  has_contributors = bool(active_contributors)
 
   rec_clause = None
   rec_sentence = None
@@ -1930,13 +1955,13 @@ def build_calibration_recommendation_text(
   else:
     rec_sentence = constants.NO_CHANNELS_REQUIRE_CALIBRATION
 
-  drivers_text = None
-  if has_drivers:
-    driver_sentences = [
+  contributors_text = None
+  if has_contributors:
+    contributor_sentences = [
         _format_channel_issue(ch, issues)
-        for ch, issues in active_drivers.items()
+        for ch, issues in active_contributors.items()
     ]
-    drivers_text = _format_list_with_and(driver_sentences)
+    contributors_text = _format_list_with_and(contributor_sentences)
 
   if location == constants.CALIBRATION_TEXT_METRICS_CHECK:
     if calibration_score is not None:
@@ -1948,9 +1973,9 @@ def build_calibration_recommendation_text(
 
   if location == constants.CALIBRATION_TEXT_CALIBRATION_SUMMARY:
     if has_recommended:
-      if has_drivers:
+      if has_contributors:
         return (
-            f"{rec_clause}: {drivers_text}."
+            f"{rec_clause}: {contributors_text}."
             f" {constants.SEE_CHANNEL_CALIBRATION_RECOMMENDATION_BELOW}"
         )
       return (
@@ -1961,25 +1986,25 @@ def build_calibration_recommendation_text(
 
   if location == constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION:
     if has_recommended:
-      if has_drivers:
+      if has_contributors:
         return (
-            f"{rec_clause}: {drivers_text}."
+            f"{rec_clause}: {contributors_text}."
             f" {constants.SEE_CHANNEL_CALIBRATION_RECOMMENDATION_BELOW}"
         )
       return (
           f"{rec_clause}."
           f" {constants.SEE_CHANNEL_CALIBRATION_RECOMMENDATION_BELOW}"
       )
-    if has_drivers:
+    if has_contributors:
       candidate_phrase = (
           "this channel may be a good candidate"
-          if len(active_drivers) == 1
+          if len(active_contributors) == 1
           else "these channels may be good candidates"
       )
       return (
           f"{constants.NO_CHANNELS_REQUIRE_CALIBRATION} However,"
-          f" {drivers_text}. We recommend reviewing the table and plots below"
-          f" to check if {candidate_phrase} for calibration via an"
+          f" {contributors_text}. We recommend reviewing the table and plots"
+          f" below to check if {candidate_phrase} for calibration via an"
           " incrementality experiment such as those run with Meridian GeoX."
       )
     return (

@@ -214,6 +214,9 @@ CALIBRATION_SCORE_YELLOW_COLOR = "#fcc934"
 CALIBRATION_SCORE = "calibration_score"
 
 # Channel calibration recommendation message constants
+CONTRIBUTOR = "Contributor"
+NON_CONTRIBUTOR = "Non-Contributor"
+# Deprecated: Use CONTRIBUTOR and NON_CONTRIBUTOR instead.
 DRIVER = "Driver"
 NON_DRIVER = "Non-Driver"
 NO_CHANNELS_REQUIRE_CALIBRATION = "No channels require calibration."

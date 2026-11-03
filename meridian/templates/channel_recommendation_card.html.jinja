@@ -57,30 +57,30 @@ limitations under the License.
           </td>
           <td>
             {% if rec.high_roi_status.name == 'REVIEW' %}
-            <chip class="driver">{{ driver_text|default("Driver") }}</chip>
+            <chip class="contributor">{{ contributor_text|default("Contributor") }}</chip>
             {% else %}
-            <chip class="non-driver">{{ non_driver_text|default("Non-Driver") }}</chip>
+            <chip class="non-contributor">{{ non_contributor_text|default("Non-Contributor") }}</chip>
             {% endif %}
           </td>
           <td>
             {% if rec.low_roi_status.name == 'REVIEW' %}
-            <chip class="driver">{{ driver_text|default("Driver") }}</chip>
+            <chip class="contributor">{{ contributor_text|default("Contributor") }}</chip>
             {% else %}
-            <chip class="non-driver">{{ non_driver_text|default("Non-Driver") }}</chip>
+            <chip class="non-contributor">{{ non_contributor_text|default("Non-Contributor") }}</chip>
             {% endif %}
           </td>
           <td>
             {% if rec.high_variance_status.name == 'REVIEW' %}
-            <chip class="driver">{{ driver_text|default("Driver") }}</chip>
+            <chip class="contributor">{{ contributor_text|default("Contributor") }}</chip>
             {% else %}
-            <chip class="non-driver">{{ non_driver_text|default("Non-Driver") }}</chip>
+            <chip class="non-contributor">{{ non_contributor_text|default("Non-Contributor") }}</chip>
             {% endif %}
           </td>
           <td>
             {% if rec.potential_bias_status.name == 'REVIEW' %}
-            <chip class="driver">{{ driver_text|default("Driver") }}</chip>
+            <chip class="contributor">{{ contributor_text|default("Contributor") }}</chip>
             {% else %}
-            <chip class="non-driver">{{ non_driver_text|default("Non-Driver") }}</chip>
+            <chip class="non-contributor">{{ non_contributor_text|default("Non-Contributor") }}</chip>
             {% endif %}
           </td>
           {% endif %}

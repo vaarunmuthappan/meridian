@@ -572,12 +572,14 @@ stats-section {
 }
 
 chip.pass,
+chip.non-contributor,
 chip.non-driver {
   background-color: $green_50;
   color: $green_800;
 }
 
 chip.review,
+chip.contributor,
 chip.driver {
   background-color: $yellow_50;
   color: $yellow_900;
@@ -613,10 +615,12 @@ chip.neutral {
     color: $chip_blue !important;
   }
   chip.pass,
+  chip.non-contributor,
   chip.non-driver {
     color: $green_800 !important;
   }
   chip.review,
+  chip.contributor,
   chip.driver {
     color: $yellow_900 !important;
   }
@@ -662,12 +666,14 @@ chip.neutral {
   }
 
   chip.pass,
+  chip.non-contributor,
   chip.non-driver {
     background-color: $green_50;
     color: $green_800;
   }
 
   chip.review,
+  chip.contributor,
   chip.driver {
     background-color: $yellow_50;
     color: $yellow_900;

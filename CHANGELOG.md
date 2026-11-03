@@ -23,6 +23,12 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
+*   Rename channel calibration recommendation criterion labels from `Driver` /
+    `Non-Driver` to `Contributor` / `Non-Contributor` in the Model Health
+    report. `meridian.analysis.review.constants.DRIVER`, `NON_DRIVER`, and the
+    `driver_issues_by_channel` parameter of
+    `build_calibration_recommendation_text` are deprecated in favor of
+    `CONTRIBUTOR`, `NON_CONTRIBUTOR`, and `contributor_issues_by_channel`.
 *   Fix a `float32`/`float64` dtype mismatch in
     `adstock_hill.transform_non_negative_reals_distribution` on the 64-bit JAX
     backend by typing the `Shift` bijector parameter with
