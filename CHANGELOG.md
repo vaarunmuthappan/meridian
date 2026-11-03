@@ -23,6 +23,10 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
+*   Clarify in the Model Health Report's Channel calibration recommendation
+    banner that the overall recommendation is based on the composite
+    calibration score and that flagged criteria are labelled as contributors in
+    the table.
 *   Fix a `float32`/`float64` dtype mismatch in
     `adstock_hill.transform_non_negative_reals_distribution` on the 64-bit JAX
     backend by typing the `Shift` bijector parameter with

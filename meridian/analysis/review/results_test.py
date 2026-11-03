@@ -895,7 +895,10 @@ Convergence Check:
             "We recommend incrementality experiments to improve prior accuracy"
             " for &#39;uncalibrated_channel&#39;:"
             " &#39;uncalibrated_channel&#39; shows issues with high ROI. See"
-            " Channel calibration recommendation below for more details."
+            " Channel calibration recommendation below for more details. The"
+            " overall calibration recommendation is based on the composite"
+            " calibration score. Any flagged criteria are labelled as"
+            " contributors to channel calibration recommendation in the table."
         ),
     ):
       self.assertIn(s, rec_card)
@@ -914,6 +917,10 @@ Convergence Check:
     ):
       self.assertIn(s, health_card)
     self.assertNotIn("Channel recommendation", health_card)
+    self.assertNotIn(
+        review_constants.CHANNEL_CALIBRATION_RECOMMENDATION_CLARIFICATION,
+        health_card,
+    )
 
     calib_summary_card = summary._create_calibration_summary_card_html()
     for s in (
@@ -938,6 +945,10 @@ Convergence Check:
     ):
       self.assertIn(s, calib_summary_card)
     self.assertNotIn("calibration-score-chart warning", calib_summary_card)
+    self.assertNotIn(
+        review_constants.CHANNEL_CALIBRATION_RECOMMENDATION_CLARIFICATION,
+        calib_summary_card,
+    )
 
   def test_channel_recommendation_card_html_custom_driver_constants(self):
     summary = _create_test_summary(
@@ -979,6 +990,34 @@ Convergence Check:
         "&#39;ch1&#39; shows potential bias",
     ):
       self.assertIn(s, rec_card)
+    self.assertEqual(
+        rec_card.count(
+            review_constants.CHANNEL_CALIBRATION_RECOMMENDATION_CLARIFICATION
+        ),
+        1,
+    )
+
+  def test_channel_recommendation_card_template_default_info_fallback(self):
+    summary = _create_test_summary()
+    template = summary._template_env.get_template(
+        "channel_recommendation_card.html.jinja"
+    )
+    rendered = template.render(
+        recommendations=[],
+        has_calibration_warning=False,
+        recommendation_info=None,
+    )
+    self.assertIn("status-banner-strip info", rendered)
+    self.assertIn(
+        "<span>No channels require calibration. We recommend reviewing the"
+        " table and plots below to check for channels near the boundaries that"
+        " may be good candidates for calibration via an incrementality"
+        " experiment such as those run with Meridian GeoX. The overall"
+        " calibration recommendation is based on the composite calibration"
+        " score. Any flagged criteria are labelled as contributors to channel"
+        " calibration recommendation in the table.</span>",
+        rendered,
+    )
 
   def test_health_card_html_calibration(self):
     summary = _create_test_summary(
@@ -1318,11 +1357,17 @@ Convergence Check:
           ),
           channel_scores={"driver_channel": 60.0},
           expected_warning_banner=True,
-          expected_warning_message=(
+          expected_banner="warning",
+          unexpected_banner="info",
+          expected_banner_message=(
               "We recommend incrementality experiments to improve prior"
               " accuracy for &#39;driver_channel&#39;:"
               " &#39;driver_channel&#39; shows issues with high ROI. See"
-              " Channel calibration recommendation below for more details."
+              " Channel calibration recommendation below for more details. The"
+              " overall calibration recommendation is based on the composite"
+              " calibration score. Any flagged criteria are labelled as"
+              " contributors to channel calibration recommendation in the"
+              " table."
           ),
       ),
       dict(
@@ -1330,10 +1375,16 @@ Convergence Check:
           check_results=[],
           channel_scores={"low_score_channel": 50.0},
           expected_warning_banner=True,
-          expected_warning_message=(
+          expected_banner="warning",
+          unexpected_banner="info",
+          expected_banner_message=(
               "We recommend incrementality experiments to improve prior"
               " accuracy for &#39;low_score_channel&#39;. See Channel"
-              " calibration recommendation below for more details."
+              " calibration recommendation below for more details. The overall"
+              " calibration recommendation is based on the composite"
+              " calibration score. Any flagged criteria are labelled as"
+              " contributors to channel calibration recommendation in the"
+              " table."
           ),
       ),
       dict(
@@ -1343,12 +1394,18 @@ Convergence Check:
           ),
           channel_scores={"driver_channel": 85.0},
           expected_warning_banner=False,
-          expected_warning_message=(
+          expected_banner="info",
+          unexpected_banner="warning",
+          expected_banner_message=(
               "No channels require calibration. However,"
               " &#39;driver_channel&#39; shows issues with high ROI. We"
               " recommend reviewing the table and plots below to check if this"
               " channel may be a good candidate for calibration via an"
               " incrementality experiment such as those run with Meridian GeoX."
+              " The overall calibration recommendation is based on the"
+              " composite calibration score. Any flagged criteria are labelled"
+              " as contributors to channel calibration recommendation in the"
+              " table."
           ),
       ),
       dict(
@@ -1356,7 +1413,18 @@ Convergence Check:
           check_results=[],
           channel_scores={"clean_channel": 85.0},
           expected_warning_banner=False,
-          expected_warning_message=None,
+          expected_banner="info",
+          unexpected_banner="warning",
+          expected_banner_message=(
+              "No channels require calibration. We recommend reviewing the"
+              " table and plots below to check for channels near the boundaries"
+              " that may be good candidates for calibration via an"
+              " incrementality experiment such as those run with Meridian GeoX."
+              " The overall calibration recommendation is based on the"
+              " composite calibration score. Any flagged criteria are labelled"
+              " as contributors to channel calibration recommendation in the"
+              " table."
+          ),
       ),
       dict(
           testcase_name="calibrated_driver_and_low_score_ignored",
@@ -1373,7 +1441,18 @@ Convergence Check:
               "uncalibrated_clean_ch": 95.0,
           },
           expected_warning_banner=False,
-          expected_warning_message=None,
+          expected_banner="info",
+          unexpected_banner="warning",
+          expected_banner_message=(
+              "No channels require calibration. We recommend reviewing the"
+              " table and plots below to check for channels near the boundaries"
+              " that may be good candidates for calibration via an"
+              " incrementality experiment such as those run with Meridian GeoX."
+              " The overall calibration recommendation is based on the"
+              " composite calibration score. Any flagged criteria are labelled"
+              " as contributors to channel calibration recommendation in the"
+              " table."
+          ),
       ),
       dict(
           testcase_name=(
@@ -1392,12 +1471,18 @@ Convergence Check:
               "demandgen": 90.0,
           },
           expected_warning_banner=True,
-          expected_warning_message=(
+          expected_banner="warning",
+          unexpected_banner="info",
+          expected_banner_message=(
               "We recommend incrementality experiments to improve prior"
               " accuracy for &#39;search&#39;, &#39;display&#39;, and"
               " &#39;pmax&#39;: &#39;search&#39; shows issues with high ROI and"
               " &#39;display&#39; shows issues with high variance. See Channel"
-              " calibration recommendation below for more details."
+              " calibration recommendation below for more details. The overall"
+              " calibration recommendation is based on the composite"
+              " calibration score. Any flagged criteria are labelled as"
+              " contributors to channel calibration recommendation in the"
+              " table."
           ),
       ),
       dict(
@@ -1413,13 +1498,18 @@ Convergence Check:
               "display": 90.0,
           },
           expected_warning_banner=False,
-          expected_warning_message=(
+          expected_banner="info",
+          unexpected_banner="warning",
+          expected_banner_message=(
               "No channels require calibration. However, &#39;search&#39; shows"
               " issues with high ROI and &#39;display&#39; shows issues with"
               " high variance. We recommend reviewing the table and plots below"
               " to check if these channels may be good candidates for"
               " calibration via an incrementality experiment such as those run"
-              " with Meridian GeoX."
+              " with Meridian GeoX. The overall calibration recommendation is"
+              " based on the composite calibration score. Any flagged criteria"
+              " are labelled as contributors to channel calibration"
+              " recommendation in the table."
           ),
       ),
   )
@@ -1428,8 +1518,10 @@ Convergence Check:
       check_results: list[results.CheckResult],
       channel_scores: dict[str, float],
       expected_warning_banner: bool,
+      expected_banner: str,
+      unexpected_banner: str,
+      expected_banner_message: str,
       calibrated_channels: Sequence[str] = (),
-      expected_warning_message: str | None = None,
   ):
     summary = _create_test_summary(
         results_list=check_results,
@@ -1438,8 +1530,6 @@ Convergence Check:
         channel_scores=channel_scores,
     )
     rec_card = summary._create_channel_recommendation_card_html()
-    expected_banner = "warning" if expected_warning_banner else "info"
-    unexpected_banner = "info" if expected_warning_banner else "warning"
     self.assertEqual(summary.has_calibration_warning, expected_warning_banner)
     self.assertIn(f"status-banner-strip {expected_banner}", rec_card)
     self.assertNotIn(f"status-banner-strip {unexpected_banner}", rec_card)
@@ -1447,11 +1537,7 @@ Convergence Check:
         f'<span class="material-icons-outlined">{expected_banner}</span>',
         rec_card,
     )
-    self.assertIn(
-        expected_warning_message
-        or results.NO_CHANNELS_REQUIRE_CALIBRATION_RECOMMENDATION,
-        rec_card,
-    )
+    self.assertIn(f"<span>{expected_banner_message}</span>", rec_card)
 
   @parameterized.named_parameters(
       dict(
@@ -2115,6 +2201,22 @@ class ReviewConstantsTest(parameterized.TestCase):
     self.assertNotEmpty(review_constants.IMPLAUSIBLE_ROI_RECOMMENDATION)
     self.assertNotEmpty(review_constants.HIGH_VARIANCE_ROI_RECOMMENDATION)
     self.assertNotEmpty(review_constants.POTENTIAL_BIAS_RECOMMENDATION)
+    self.assertEqual(
+        review_constants.CHANNEL_CALIBRATION_RECOMMENDATION_CLARIFICATION,
+        "The overall calibration recommendation is based on the composite"
+        " calibration score. Any flagged criteria are labelled as contributors"
+        " to channel calibration recommendation in the table.",
+    )
+    self.assertEqual(
+        review_constants.NO_CHANNELS_REQUIRE_CALIBRATION_RECOMMENDATION,
+        "No channels require calibration. We recommend reviewing the table and"
+        " plots below to check for channels near the boundaries that may be"
+        " good candidates for calibration via an incrementality experiment such"
+        " as those run with Meridian GeoX. The overall calibration"
+        " recommendation is based on the composite calibration score. Any"
+        " flagged criteria are labelled as contributors to channel calibration"
+        " recommendation in the table.",
+    )
 
 
 _CALIBRATION_LIMIT_MESSAGE = (
@@ -2878,93 +2980,174 @@ class CalibrationScoreTest(parameterized.TestCase):
     )
 
   @parameterized.named_parameters(
-      (
-          "scores_and_drivers",
-          ["pmax", "search"],
-          {
+      dict(
+          testcase_name="scores_and_drivers",
+          recommended_channels=["pmax", "search"],
+          driver_issues_by_channel={
               "pmax": [review_constants.HIGH_ROI],
               "search": [review_constants.HIGH_VARIANCE],
           },
-          (
+          expected_channel_recommendation=(
+              "We recommend incrementality experiments to improve prior"
+              " accuracy for 'pmax' and 'search': 'pmax' shows issues with"
+              " high ROI and 'search' shows issues with high variance. See"
+              " Channel calibration recommendation below for more details. The"
+              " overall calibration recommendation is based on the composite"
+              " calibration score. Any flagged criteria are labelled as"
+              " contributors to channel calibration recommendation in the"
+              " table."
+          ),
+          expected_calibration_summary=(
               "We recommend incrementality experiments to improve prior"
               " accuracy for 'pmax' and 'search': 'pmax' shows issues with"
               " high ROI and 'search' shows issues with high variance. See"
               " Channel calibration recommendation below for more details."
           ),
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. We recommend"
+              " incrementality experiments to improve prior accuracy for 'pmax'"
+              " and 'search'."
+          ),
       ),
-      (
-          "no_scores_no_drivers",
-          [],
-          {},
-          results.NO_CHANNELS_REQUIRE_CALIBRATION_RECOMMENDATION,
+      dict(
+          testcase_name="no_scores_no_drivers",
+          recommended_channels=[],
+          driver_issues_by_channel={},
+          expected_channel_recommendation=(
+              "No channels require calibration. We recommend reviewing the"
+              " table and plots below to check for channels near the boundaries"
+              " that may be good candidates for calibration via an"
+              " incrementality experiment such as those run with Meridian GeoX."
+              " The overall calibration recommendation is based on the"
+              " composite calibration score. Any flagged criteria are labelled"
+              " as contributors to channel calibration recommendation in the"
+              " table."
+          ),
+          expected_calibration_summary="No channels require calibration.",
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. No channels require"
+              " calibration."
+          ),
       ),
-      (
-          "scores_no_drivers",
-          ["pmax"],
-          {},
-          (
+      dict(
+          testcase_name="scores_no_drivers",
+          recommended_channels=["pmax"],
+          driver_issues_by_channel={},
+          expected_channel_recommendation=(
+              "We recommend incrementality experiments to improve prior"
+              " accuracy for 'pmax'. See Channel calibration recommendation"
+              " below for more details. The overall calibration recommendation"
+              " is based on the composite calibration score. Any flagged"
+              " criteria are labelled as contributors to channel calibration"
+              " recommendation in the table."
+          ),
+          expected_calibration_summary=(
               "We recommend incrementality experiments to improve prior"
               " accuracy for 'pmax'. See Channel calibration recommendation"
               " below for more details."
           ),
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. We recommend"
+              " incrementality experiments to improve prior accuracy for"
+              " 'pmax'."
+          ),
       ),
-      (
-          "no_scores_single_driver",
-          [],
-          {"search": [review_constants.HIGH_VARIANCE]},
-          (
+      dict(
+          testcase_name="no_scores_single_driver",
+          recommended_channels=[],
+          driver_issues_by_channel={"search": [review_constants.HIGH_VARIANCE]},
+          expected_channel_recommendation=(
               "No channels require calibration. However, 'search' shows issues"
               " with high variance. We recommend reviewing the table and plots"
               " below to check if this channel may be a good candidate for"
               " calibration via an incrementality experiment such as those run"
-              " with Meridian GeoX."
+              " with Meridian GeoX. The overall calibration recommendation is"
+              " based on the composite calibration score. Any flagged criteria"
+              " are labelled as contributors to channel calibration"
+              " recommendation in the table."
+          ),
+          expected_calibration_summary="No channels require calibration.",
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. No channels require"
+              " calibration."
           ),
       ),
-      (
-          "no_scores_multi_channel_drivers",
-          [],
-          {
+      dict(
+          testcase_name="no_scores_multi_channel_drivers",
+          recommended_channels=[],
+          driver_issues_by_channel={
               "pmax": [review_constants.HIGH_ROI],
               "search": [review_constants.HIGH_VARIANCE],
           },
-          (
+          expected_channel_recommendation=(
               "No channels require calibration. However, 'pmax' shows issues"
               " with high ROI and 'search' shows issues with high variance. We"
               " recommend reviewing the table and plots below to check if these"
               " channels may be good candidates for calibration via an"
               " incrementality experiment such as those run with Meridian"
-              " GeoX."
+              " GeoX. The overall calibration recommendation is based on the"
+              " composite calibration score. Any flagged criteria are labelled"
+              " as contributors to channel calibration recommendation in the"
+              " table."
+          ),
+          expected_calibration_summary="No channels require calibration.",
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. No channels require"
+              " calibration."
           ),
       ),
-      (
-          "no_scores_single_channel_multi_drivers",
-          [],
-          {
+      dict(
+          testcase_name="no_scores_single_channel_multi_drivers",
+          recommended_channels=[],
+          driver_issues_by_channel={
               "pmax": [
                   review_constants.HIGH_ROI,
                   review_constants.HIGH_VARIANCE,
               ],
           },
-          (
+          expected_channel_recommendation=(
               "No channels require calibration. However, 'pmax' shows issues"
               " with high ROI and high variance. We recommend reviewing the"
               " table and plots below to check if this channel may be a good"
               " candidate for calibration via an incrementality experiment"
-              " such as those run with Meridian GeoX."
+              " such as those run with Meridian GeoX. The overall calibration"
+              " recommendation is based on the composite calibration score. Any"
+              " flagged criteria are labelled as contributors to channel"
+              " calibration recommendation in the table."
+          ),
+          expected_calibration_summary="No channels require calibration.",
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. No channels require"
+              " calibration."
           ),
       ),
-      (
-          "scores_and_drivers_order_preserved",
-          ["search", "display"],
-          {
+      dict(
+          testcase_name="scores_and_drivers_order_preserved",
+          recommended_channels=["search", "display"],
+          driver_issues_by_channel={
               "search": [review_constants.HIGH_ROI],
               "pmax": [review_constants.POTENTIAL_BIAS],
           },
-          (
+          expected_channel_recommendation=(
+              "We recommend incrementality experiments to improve prior"
+              " accuracy for 'search' and 'display': 'search' shows issues"
+              " with high ROI and 'pmax' shows potential bias. See Channel"
+              " calibration recommendation below for more details. The overall"
+              " calibration recommendation is based on the composite"
+              " calibration score. Any flagged criteria are labelled as"
+              " contributors to channel calibration recommendation in the"
+              " table."
+          ),
+          expected_calibration_summary=(
               "We recommend incrementality experiments to improve prior"
               " accuracy for 'search' and 'display': 'search' shows issues"
               " with high ROI and 'pmax' shows potential bias. See Channel"
               " calibration recommendation below for more details."
+          ),
+          expected_metrics_check=(
+              "The overall calibration score is 80.0/100. We recommend"
+              " incrementality experiments to improve prior accuracy for"
+              " 'search' and 'display'."
           ),
       ),
   )
@@ -2972,56 +3155,62 @@ class CalibrationScoreTest(parameterized.TestCase):
       self,
       recommended_channels: list[str],
       driver_issues_by_channel: dict[str, list[str]],
-      expected_recommendation: str,
+      expected_channel_recommendation: str,
+      expected_calibration_summary: str,
+      expected_metrics_check: str,
   ):
-    # Location (c): channel recommendation
-    self.assertEqual(
-        results.build_calibration_recommendation_text(
-            recommended_channels=recommended_channels,
-            driver_issues_by_channel=driver_issues_by_channel,
-            location=review_constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
-        ),
-        expected_recommendation,
+    channel_recommendation = results.build_calibration_recommendation_text(
+        recommended_channels=recommended_channels,
+        driver_issues_by_channel=driver_issues_by_channel,
+        location=review_constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
     )
-    # Location (b): calibration summary
-    expected_summary = (
-        expected_recommendation
-        if recommended_channels
-        else review_constants.NO_CHANNELS_REQUIRE_CALIBRATION
+    self.assertEqual(channel_recommendation, expected_channel_recommendation)
+
+    calibration_summary = results.build_calibration_recommendation_text(
+        recommended_channels=recommended_channels,
+        driver_issues_by_channel=driver_issues_by_channel,
+        location=review_constants.CALIBRATION_TEXT_CALIBRATION_SUMMARY,
     )
-    self.assertEqual(
-        results.build_calibration_recommendation_text(
-            recommended_channels=recommended_channels,
-            driver_issues_by_channel=driver_issues_by_channel,
-            location=review_constants.CALIBRATION_TEXT_CALIBRATION_SUMMARY,
-        ),
-        expected_summary,
+    self.assertEqual(calibration_summary, expected_calibration_summary)
+    self.assertNotIn(
+        review_constants.CHANNEL_CALIBRATION_RECOMMENDATION_CLARIFICATION,
+        calibration_summary,
     )
-    # Location (a): metrics check
-    if recommended_channels:
-      channels_text = results._format_list_with_and(
-          [f"'{c}'" for c in dict.fromkeys(recommended_channels)]
-      )
-      rec_part = (
-          "We recommend incrementality experiments to improve prior accuracy"
-          f" for {channels_text}."
-      )
-    else:
-      rec_part = review_constants.NO_CHANNELS_REQUIRE_CALIBRATION
-    self.assertEqual(
-        results.build_calibration_recommendation_text(
-            recommended_channels=recommended_channels,
-            driver_issues_by_channel=driver_issues_by_channel,
-            location=review_constants.CALIBRATION_TEXT_METRICS_CHECK,
-            calibration_score=80.0,
-        ),
-        f"The overall calibration score is 80.0/100. {rec_part}",
+
+    metrics_check = results.build_calibration_recommendation_text(
+        recommended_channels=recommended_channels,
+        driver_issues_by_channel=driver_issues_by_channel,
+        location=review_constants.CALIBRATION_TEXT_METRICS_CHECK,
+        calibration_score=80.0,
+    )
+    self.assertEqual(metrics_check, expected_metrics_check)
+    self.assertNotIn(
+        review_constants.CHANNEL_CALIBRATION_RECOMMENDATION_CLARIFICATION,
+        metrics_check,
     )
 
   def test_build_calibration_recommendation_text_defaults_and_dedup(self):
     self.assertEqual(
         results.build_calibration_recommendation_text(),
         results.NO_CHANNELS_REQUIRE_CALIBRATION_RECOMMENDATION,
+    )
+    self.assertEqual(
+        results.build_calibration_recommendation_text(
+            recommended_channels=["search", "pmax", "search"],
+            driver_issues_by_channel={
+                "search": [
+                    review_constants.HIGH_ROI,
+                    review_constants.HIGH_ROI,
+                ]
+            },
+            location=review_constants.CALIBRATION_TEXT_CHANNEL_RECOMMENDATION,
+        ),
+        "We recommend incrementality experiments to improve prior accuracy for"
+        " 'search' and 'pmax': 'search' shows issues with high ROI. See Channel"
+        " calibration recommendation below for more details. The overall"
+        " calibration recommendation is based on the composite calibration"
+        " score. Any flagged criteria are labelled as contributors to channel"
+        " calibration recommendation in the table.",
     )
     self.assertEqual(
         results.build_calibration_recommendation_text(
