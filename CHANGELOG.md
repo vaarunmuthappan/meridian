@@ -23,8 +23,11 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 
 ## [Unreleased]
 
-*   Add a `balanced` option to `RandomHoldoutSpec` to balance held-out
-    observations across time periods as well as geos.
+*   Fix `WeeklyOptimizationGrid.to_optimization_grid` prematurely rounding
+    historical channel spend before multiplying by the grid's edge spend
+    multipliers when validating optimization bounds, which could falsely reject
+    covered bounds for small channels or accept bounds slightly beyond grid
+    coverage.
 *   Add `ReviewSummary.plot_calibration_overview()` and
     `ReviewSummary.plot_calibration_details()` to plot the calibration overview
     (experiments, priors and posterior) and the per-experiment adjustments for
@@ -124,7 +127,7 @@ To release a new version (e.g. from `1.0.0` -> `2.0.0`):
 *   Add `allows_negative_aggregate_baseline` to `ModelSpec` to optionally
     constrain the population-weighted aggregate baseline across time and geos to
     be non-negative.
-*   Update `mmm-proto-schema` dependency to >= 1.7.0.
+*   Update `mmm-proto-schema` dependency to >= 1.5.0.
 *   Allocate spend that is aggregated over the geo and time dimensions once,
     when the analysis data tensors are built, instead of imputing it separately
     in `Analyzer.get_aggregated_spend`. `summary_metrics` now supports spend
